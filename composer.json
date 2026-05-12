@@ -1,0 +1,8 @@
+{
+  "name": "quent/bataille_navale",
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

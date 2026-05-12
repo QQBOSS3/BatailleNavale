@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Redirection…</title>
+  <meta http-equiv="refresh" content="0; url=/public/login.php">
+  <meta name="robots" content="noindex">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    // Redirection JS au cas où le meta refresh serait bloqué
+    (function () {
+      var target = "/public/login.php";
+      if (window.location.pathname !== target) {
+        window.location.replace(target);
+      }
+    })();
+  </script>
+</head>
+<body>
+  <p>Redirection en cours vers <a href="/public/login.php">/public/login.php</a>…</p>
+  <noscript>
+    <p>Si vous n’êtes pas redirigé automatiquement, cliquez ici :
+      <a href="/public/login.php">Accéder à la page de connexion</a>.
+    </p>
+  </noscript>
+</body>
+</html>
