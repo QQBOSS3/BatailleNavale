@@ -49,22 +49,36 @@ Joueurs occasionnels et passionnés de jeux de stratégie, tous âges, sur navig
 BN/
 ├── config/
 │   ├── db.php                  # Connexion PDO (persistante, utf8mb4)
+│   ├── constants.php           # Constantes globales (ROUND_DURATION, types de partie)
 │   └── xp.php                  # Système de progression (XP, Gold, niveaux)
 ├── src/
 │   ├── Entity/
 │   │   ├── User.php            # Entité utilisateur
 │   │   └── Avatar.php          # Entité avatar
+│   ├── Middleware/
+│   │   └── AuthMiddleware.php  # Contrôle d'accès (requireAuth, requireAuthJson)
 │   ├── Repository/
 │   │   ├── UserRepository.php  # Accès données utilisateur
-│   │   └── AvatarRepository.php# Accès données avatar
+│   │   ├── AvatarRepository.php# Accès données avatar
+│   │   ├── BoardRepository.php # Accès plateaux de jeu
+│   │   ├── FriendRepository.php# Accès relations d'amitié
+│   │   ├── GameRepository.php  # Accès données de partie
+│   │   └── SkinRepository.php  # Accès skins et cosmétiques
 │   └── Service/
-│       ├── AuthService.php     # Authentification (login, session)
-│       └── FlashService.php    # Messages flash (notifications)
+│       ├── AuthService.php     # Authentification (login, vérification hash)
+│       ├── FlashService.php    # Messages flash (notifications)
+│       ├── GameLogicService.php# Logique de jeu (flood-fill, placement, victoire)
+│       └── RewardService.php   # Récompenses XP/Gold/niveaux (version OOP)
 ├── public/
-│   ├── [38 endpoints PHP]      # Points d'entrée de l'application
+│   ├── [39 endpoints PHP]      # Points d'entrée de l'application
 │   └── assets/
-│       ├── css/style.css       # Feuille de style principale
-│       ├── js/app.js           # Logique côté client
+│       ├── css/style.css       # Feuille de style principale (~1930 lignes)
+│       ├── js/
+│       │   ├── app.js          # JS global (235 lignes)
+│       │   ├── lobby.js        # JS du lobby (144 lignes)
+│       │   ├── place_ships.js  # JS du placement (336 lignes)
+│       │   ├── play.js         # JS du combat (908 lignes)
+│       │   └── list_games.js   # JS du sonar (110 lignes)
 │       ├── fonts/              # Police pixel
 │       └── img/                # 30+ images (UI, boutons, fonds)
 ├── vendor/                     # Dépendances Composer
@@ -79,10 +93,9 @@ BN/
 |------------------|--------------------------------------------------|
 | `users`          | Comptes joueurs (email, pseudo, mot de passe hashé, niveau, XP, Gold, avatar, statut en ligne) |
 | `games`          | Sessions de jeu (mode, type, règles, statut, créateur, taille grille, timer) |
-| `game_players`   | Participation joueur/partie (équipe, statut : in_game, dead, left) |
+| `game_players`   | Participation joueur/partie (équipe, statut : in_game, dead, left, invited) |
 | `player_boards`  | Grilles de placement (board_json : tableau 2D avec IDs uniques par bateau) |
 | `shots`          | Tirs effectués (position, cible, résultat : pending → hit/miss/sunk) |
-| `rounds`         | Gestion des tours (numéro, timestamps)           |
 | `game_invites`   | Invitations à rejoindre une partie                |
 | `friends`        | Relations d'amitié (Pending, Accepted, Rejected)  |
 | `avatar`         | Avatars disponibles (image BLOB, nom, MIME type)  |
@@ -95,6 +108,9 @@ BN/
 | `traductions`    | Traductions i18n (clé, langue, valeur)            |
 | `update`         | Historique des versions                           |
 | `credit`         | Crédits du jeu                                    |
+| `skin_themes`    | Thèmes de skins disponibles (catégorie, prix, assets) |
+| `skin_purchases` | Achats de skins par joueur                        |
+| `skin_active`    | Skin actif par joueur et par catégorie (avatar, bateau, fond) |
 
 ---
 
@@ -404,10 +420,13 @@ Remplacement de tous les `alert()` et `confirm()` système par un modal custom :
 
 | Page              | Intervalle | Endpoint               |
 |-------------------|------------|------------------------|
+| Accueil (index.php) | 5s       | `get_friends.php`      |
+| Accueil (index.php) | 5s       | `get_game_invites.php` |
 | Lobby (game.php)  | 2s         | `check_game_status.php`|
+| Placement (place_ships_view.php) | 2s | `check_ready.php` |
+| Attente (wait_for_players.php) | 2s | `check_ready.php`  |
 | Combat (play.php) | 3s         | `get_shots.php`        |
 | Liste parties     | 5s         | `list_games.php?ajax=1`|
-| Invitations       | 5s         | `get_game_invites.php` |
 
 ### 8.3 Optimisations
 - Connexions PDO **persistantes** (`PDO::ATTR_PERSISTENT = true`)
@@ -463,6 +482,7 @@ Remplacement de tous les `alert()` et `confirm()` système par un modal custom :
 | `invite_to_game.php`    | POST    | Inviter un ami à une partie       |
 | `get_game_invites.php`  | GET     | Lister les invitations reçues     |
 | `respond_game_invite.php`| POST   | Accepter/refuser une invitation   |
+| `accept_invite.php`   | POST    | Accepter une invitation directe (invited → in_game) |
 
 ### Personnalisation
 
@@ -472,6 +492,14 @@ Remplacement de tous les `alert()` et `confirm()` système par un modal custom :
 | `get_avatar.php`    | GET     | Récupérer l'image d'un avatar     |
 | `update_avatar.php` | POST    | Changer son avatar                 |
 | `update_options.php`| POST    | Modifier les préférences           |
+| `shop.php`        | GET/POST | Boutique de skins (achat, équipement, déséquipement) |
+
+### Statut et attente
+
+| Endpoint              | Méthode | Description                          |
+|-----------------------|---------|--------------------------------------|
+| `check_status.php`    | GET     | Vérifier la présence d'un joueur     |
+| `wait_for_players.php`| GET     | Page d'attente après placement       |
 
 ---
 
